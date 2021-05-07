@@ -3,7 +3,6 @@ module github.com/go-god/gmicro
 go 1.13
 
 require (
-	github.com/daheige/gmicro v1.2.4
 	github.com/golang/protobuf v1.5.2
 	github.com/grpc-ecosystem/go-grpc-middleware v1.3.0
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0

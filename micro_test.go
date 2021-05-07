@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 
-	"github.com/daheige/gmicro/example/pb"
+	"github.com/go-god/gmicro/example/pb"
 )
 
 var reverseProxyFunc HandlerFromEndpoint
@@ -51,7 +51,7 @@ func initConf() {
 2020/06/27 18:56:53 resp code:  200
 --- PASS: TestNewService (6.02s)
 PASS
-ok  	github.com/daheige/gmicro	6.034s
+ok  	github.com/go-god/gmicro	6.034s
 */
 func TestNewService(t *testing.T) {
 	initConf()
@@ -209,7 +209,7 @@ func TestNewService(t *testing.T) {
 === RUN   TestErrorReverseProxyFunc
 --- PASS: TestErrorReverseProxyFunc (0.00s)
 PASS
-ok  	github.com/daheige/gmicro	0.012s
+ok  	github.com/go-god/gmicro	0.012s
 */
 func TestErrorReverseProxyFunc(t *testing.T) {
 	initConf()
