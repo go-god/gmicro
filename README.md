@@ -14,6 +14,9 @@
     The protocol called by the client can be http or grpc pb format. At the same time, 
     it supports the same port, while providing http services (supporting http1.x protocol requests) 
     and the processing capabilities of grpc server.
+# installation
+    
+    go get -v github.com/go-god/gmicro
 
 # gmicro action
 
