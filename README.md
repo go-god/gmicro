@@ -44,8 +44,8 @@
     
 # Google APIs
 
-    https://github.com/grpc-ecosystem/grpc-gateway/tree/master/third_party/googleapis
-
+    https://github.com/google/googleapis
+    
     ============
     
     Project: Google APIs
