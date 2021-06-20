@@ -238,7 +238,10 @@ func TestErrorReverseProxyFunc(t *testing.T) {
 }
 
 // rpc service entry
-type greeterService struct{}
+type greeterService struct {
+	// 必须包含这个，否则就没有实现 pb.GreeterServiceServer interface
+	pb.UnimplementedGreeterServiceServer
+}
 
 func (s *greeterService) SayHello(ctx context.Context, in *pb.HelloReq) (*pb.HelloReply, error) {
 	// panic(111)
