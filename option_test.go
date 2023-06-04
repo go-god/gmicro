@@ -1,16 +1,17 @@
 package gmicro
 
 import (
+	"context"
 	"net/http"
 	"syscall"
 	"testing"
 	"time"
 
-	"github.com/grpc-ecosystem/grpc-gateway/runtime"
+	gRuntime "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/stretchr/testify/assert"
-	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/protobuf/encoding/protojson"
 )
 
 func TestStaticDir(t *testing.T) {
@@ -99,9 +100,18 @@ func TestWithHTTPServer(t *testing.T) {
 
 func TestMuxOption(t *testing.T) {
 	s := NewService(
-		WithMuxOption(runtime.WithMarshalerOption(
-			runtime.MIMEWildcard,
-			&runtime.JSONPb{OrigName: true, EmitDefaults: true},
+		WithMuxOption(gRuntime.WithMarshalerOption(
+			gRuntime.MIMEWildcard, &gRuntime.HTTPBodyMarshaler{
+				Marshaler: &gRuntime.JSONPb{
+					MarshalOptions: protojson.MarshalOptions{
+						UseProtoNames:   true,
+						EmitUnpopulated: true,
+					},
+					UnmarshalOptions: protojson.UnmarshalOptions{
+						DiscardUnknown: true,
+					},
+				},
+			},
 		)),
 	)
 

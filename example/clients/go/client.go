@@ -5,12 +5,14 @@ import (
 	"log"
 	"os"
 
-	"google.golang.org/grpc"
-
+	"github.com/go-god/gmicro"
 	"github.com/go-god/gmicro/example/clients/go/pb"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 )
 
-const (
+var (
 	address = "localhost:8081" // grpc server and http gateway on share port
 	// address = "localhost:50051" // grpc server port without http gateway
 	// address     = "localhost:50050" // nginx grpc_pass port
@@ -26,7 +28,12 @@ heige@daheige client % go run client.go daheige123
 
 func main() {
 	// Set up a connection to the server.
-	conn, err := grpc.Dial(address, grpc.WithInsecure())
+	// please note the following settings
+	// Deprecated: use WithTransportCredentials and insecure.NewCredentials()
+	// instead. Will be supported throughout 1.x.
+	// conn, err := grpc.Dial(address, grpc.WithInsecure())
+	// so use grpc.WithTransportCredentials(insecure.NewCredentials()) as default grpc.DialOption
+	conn, err := grpc.Dial(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		log.Fatalf("did not connect: %v", err)
 	}
@@ -41,7 +48,14 @@ func main() {
 		name = os.Args[1]
 	}
 
-	res, err := c.SayHello(context.Background(), &pb.HelloReq{
+	requestID := gmicro.Uuid()
+	log.Println("x-request-id: ", requestID)
+	md := metadata.New(map[string]string{
+		"x-request-id": requestID,
+	})
+
+	ctx := metadata.NewOutgoingContext(context.Background(), md)
+	res, err := c.SayHello(ctx, &pb.HelloReq{
 		Name: name,
 	})
 

@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -12,21 +12,23 @@ import (
 	"testing"
 	"time"
 
-	"github.com/grpc-ecosystem/grpc-gateway/runtime"
+	"github.com/go-god/gmicro/example/pb"
+	gRuntime "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
-
-	"github.com/go-god/gmicro/example/pb"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
-var reverseProxyFunc HandlerFromEndpoint
-var httpPort, grpcPort, sharePort int
-var shutdownFunc func()
+var (
+	reverseProxyFunc              HandlerFromEndpoint
+	httpPort, grpcPort, sharePort int
+	shutdownFunc                  func()
+)
 
 func initConf() {
 	reverseProxyFunc = func(
 		ctx context.Context,
-		mux *runtime.ServeMux,
+		mux *gRuntime.ServeMux,
 		grpcHostAndPort string,
 		opts []grpc.DialOption,
 	) error {
@@ -42,16 +44,16 @@ func initConf() {
 	}
 }
 
-/** TestNewService
+/*
+* TestNewService
 % go test -v -test.run=TestNewService
 === RUN   TestNewService
-2020/06/27 18:56:52 Starting gPRC server listening on 9999
-2020/06/27 18:56:52 Starting http server listening on 8888
-2020/06/27 18:56:53 req data:  name:"daheige"
-2020/06/27 18:56:53 resp code:  200
---- PASS: TestNewService (6.02s)
+2021/06/19 21:29:33 Starting gPRC server listening on 9999
+2021/06/19 21:29:33 Starting http server listening on 8888
+2021/06/19 21:29:34 req data:  name:"daheige"
+2021/06/19 21:29:34 resp code:  200
+--- PASS: TestNewService (6.03s)
 PASS
-ok  	github.com/go-god/gmicro	6.034s
 */
 func TestNewService(t *testing.T) {
 	initConf()
@@ -59,8 +61,8 @@ func TestNewService(t *testing.T) {
 
 	// add the /test endpoint
 	route := Route{
-		Method:  "GET",
-		Pattern: PathPattern("test"),
+		Method: "GET",
+		Path:   "/test",
 		Handler: func(w http.ResponseWriter, r *http.Request, pathParams map[string]string) {
 			w.Write([]byte("Hello!"))
 		},
@@ -72,7 +74,6 @@ func TestNewService(t *testing.T) {
 		WithShutdownFunc(shutdownFunc),
 		WithPreShutdownDelay(1*time.Second),
 		WithHandlerFromEndpoint(pb.RegisterGreeterServiceHandlerFromEndpoint),
-		// WithHandlerFromEndpoint(HandlerFromEndpoint(pb.RegisterGreeterServiceHandlerFromEndpoint)),
 		WithLogger(LoggerFunc(log.Printf)),
 		WithPrometheus(true),
 	)
@@ -80,9 +81,9 @@ func TestNewService(t *testing.T) {
 	// register grpc service
 	pb.RegisterGreeterServiceServer(s.GRPCServer, &greeterService{})
 
-	newRoute := Route{
-		Method:  "GET",
-		Pattern: PathPattern("health"),
+	healthRoute := Route{
+		Method: "GET",
+		Path:   "/health",
 		Handler: func(w http.ResponseWriter, r *http.Request, pathParams map[string]string) {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.WriteHeader(http.StatusOK)
@@ -90,11 +91,11 @@ func TestNewService(t *testing.T) {
 		},
 	}
 
-	s.AddRoute(newRoute)
+	s.AddRoute(healthRoute)
 
 	newRoute2 := Route{
-		Method:  "GET",
-		Pattern: PathPattern("info"),
+		Method: "GET",
+		Path:   "/info",
 		Handler: func(w http.ResponseWriter, r *http.Request, pathParams map[string]string) {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.WriteHeader(http.StatusOK)
@@ -103,6 +104,21 @@ func TestNewService(t *testing.T) {
 	}
 
 	s.AddRoute(newRoute2)
+
+	// add test.json
+	fileRoute := Route{
+		Method:  "GET",
+		Path:    "/test.json",
+		Handler: s.ServeFile,
+	}
+	s.AddRoute(fileRoute)
+
+	noRoute := Route{
+		Method:  "GET",
+		Path:    "/404",
+		Handler: s.ServeFile,
+	}
+	s.AddRoute(noRoute)
 
 	s.AddHandlerFromEndpoint(reverseProxyFunc)
 
@@ -138,7 +154,7 @@ func TestNewService(t *testing.T) {
 	resp, err = client.Get(fmt.Sprintf("http://127.0.0.1:%d/health", httpPort))
 	should.NoError(err)
 	should.Equal(http.StatusOK, resp.StatusCode)
-	b, err := ioutil.ReadAll(resp.Body)
+	b, err := io.ReadAll(resp.Body)
 	should.NoError(err)
 	should.Equal("OK", string(b))
 
@@ -185,8 +201,8 @@ func TestNewService(t *testing.T) {
 	s4.AddHandlerFromEndpoint(reverseProxyFunc)
 
 	go func() {
-		err := s4.Start(httpPort, grpcPort)
-		should.NoError(err)
+		e := s4.Start(httpPort, grpcPort)
+		should.NoError(e)
 	}()
 
 	// wait 1 second for the server start
@@ -204,7 +220,8 @@ func TestNewService(t *testing.T) {
 	time.Sleep(3 * time.Second)
 }
 
-/** TestErrorReverseProxyFunc
+/*
+* TestErrorReverseProxyFunc
 % go test -v -test.run=TestErrorReverseProxyFunc
 === RUN   TestErrorReverseProxyFunc
 --- PASS: TestErrorReverseProxyFunc (0.00s)
@@ -220,7 +237,7 @@ func TestErrorReverseProxyFunc(t *testing.T) {
 	errText := "reverse proxy func error"
 	reverseProxyFunc = func(
 		ctx context.Context,
-		mux *runtime.ServeMux,
+		mux *gRuntime.ServeMux,
 		grpcHostAndPort string,
 		opts []grpc.DialOption,
 	) error {
@@ -239,7 +256,6 @@ func TestErrorReverseProxyFunc(t *testing.T) {
 
 // rpc service entry
 type greeterService struct {
-	// 必须包含这个，否则就没有实现 pb.GreeterServiceServer interface
 	pb.UnimplementedGreeterServiceServer
 }
 
@@ -288,8 +304,8 @@ func TestGRPCAndHttpServer(t *testing.T) {
 
 	// add the /test endpoint
 	route := Route{
-		Method:  "GET",
-		Pattern: PathPattern("test"),
+		Method: "GET",
+		Path:   "/test",
 		Handler: func(w http.ResponseWriter, r *http.Request, pathParams map[string]string) {
 			w.Write([]byte("Hello!"))
 		},
@@ -300,7 +316,7 @@ func TestGRPCAndHttpServer(t *testing.T) {
 		WithRouteOpt(route),
 		WithShutdownFunc(shutdownFunc),
 		WithPreShutdownDelay(2*time.Second),
-		WithHandlerFromEndpoint(pb.RegisterGreeterServiceHandlerFromEndpoint),
+		// WithHandlerFromEndpoint(pb.RegisterGreeterServiceHandlerFromEndpoint),
 		WithLogger(LoggerFunc(log.Printf)),
 		WithRequestAccess(true),
 		WithPrometheus(true),
@@ -311,8 +327,8 @@ func TestGRPCAndHttpServer(t *testing.T) {
 	pb.RegisterGreeterServiceServer(s.GRPCServer, &greeterService{})
 
 	newRoute := Route{
-		Method:  "GET",
-		Pattern: PathPattern("health"),
+		Method: "GET",
+		Path:   "/health",
 		Handler: func(w http.ResponseWriter, r *http.Request, pathParams map[string]string) {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.WriteHeader(http.StatusOK)
@@ -323,8 +339,8 @@ func TestGRPCAndHttpServer(t *testing.T) {
 	s.AddRoute(newRoute)
 
 	newRoute2 := Route{
-		Method:  "GET",
-		Pattern: PathPattern("info"),
+		Method: "GET",
+		Path:   "/info",
 		Handler: func(w http.ResponseWriter, r *http.Request, pathParams map[string]string) {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.WriteHeader(http.StatusOK)
@@ -364,7 +380,7 @@ func TestGRPCAndHttpServer(t *testing.T) {
 	resp, err = client.Get(fmt.Sprintf("http://127.0.0.1:%d/health", sharePort))
 	should.NoError(err)
 	should.Equal(http.StatusOK, resp.StatusCode)
-	b, err := ioutil.ReadAll(resp.Body)
+	b, err := io.ReadAll(resp.Body)
 	should.NoError(err)
 	should.Equal("OK", string(b))
 
@@ -378,7 +394,8 @@ func TestGRPCAndHttpServer(t *testing.T) {
 	time.Sleep(100 * time.Second)
 }
 
-/**
+/*
+*
 === RUN   TestGRPCServerWithoutGateway
 2020/07/12 21:58:17 Starting gPRC server listening on 9999
 2020/07/12 21:58:18 exec begin
@@ -423,7 +440,7 @@ func TestGRPCServerWithoutGateway(t *testing.T) {
 	should.Error(err)
 
 	// Set up a connection to the server.
-	conn, err := grpc.Dial(s.gRPCAddress, grpc.WithInsecure())
+	conn, err := grpc.Dial(s.gRPCAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		log.Fatalf("did not connect: %v", err)
 	}

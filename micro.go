@@ -13,16 +13,16 @@ import (
 	"strings"
 	"time"
 
-	middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	gRecovery "github.com/grpc-ecosystem/go-grpc-middleware/recovery"
 	gValidator "github.com/grpc-ecosystem/go-grpc-middleware/validator"
 	gPrometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
-	gRuntime "github.com/grpc-ecosystem/grpc-gateway/runtime"
+	gRuntime "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/status"
@@ -37,10 +37,9 @@ const (
 )
 
 // refer: https://github.com/golang/protobuf/blob/v1.4.3/jsonpb/encode.go#L30
-var defaultMuxOption = gRuntime.WithMarshalerOption(gRuntime.MIMEWildcard,
-	&gRuntime.JSONPb{EmitDefaults: true, OrigName: false})
+var defaultMuxOption = gRuntime.WithMarshalerOption(gRuntime.MIMEWildcard, &gRuntime.JSONPb{})
 
-// AnnotatorFunc is the annotator function is for injecting meta data from http request into gRPC context
+// AnnotatorFunc is the annotator function is for injecting metadata from http request into gRPC context
 type AnnotatorFunc func(context.Context, *http.Request) metadata.MD
 
 // HandlerFromEndpoint is the callback that the caller should implement
@@ -48,7 +47,7 @@ type AnnotatorFunc func(context.Context, *http.Request) metadata.MD
 // handlerFromEndpoint http gw endPoint
 // automatically dials to "endpoint" and closes the connection when "ctx" gets done.
 type HandlerFromEndpoint func(ctx context.Context, mux *gRuntime.ServeMux,
-	grpcAddressAndPort string, opts []grpc.DialOption) error
+	endpoint string, opts []grpc.DialOption) error
 
 // HTTPHandlerFunc is the http middleware handler function.
 type HTTPHandlerFunc func(*gRuntime.ServeMux) http.Handler
@@ -69,10 +68,10 @@ type Service struct {
 	annotators           []AnnotatorFunc
 	staticDir            string                         // static dir
 	enableStaticAccess   bool                           // enable static file access
-	errorHandler         gRuntime.ProtoErrorHandlerFunc // gRPC error handler
+	errorHandler         gRuntime.ErrorHandlerFunc      // gRPC error handler
 	mux                  *gRuntime.ServeMux             // gRPC gw runtime serverMux
 	muxOptions           []gRuntime.ServeMuxOption      // gRPC mux options
-	routes               []Route                        // gRPC http router
+	routes               []Route                        // gRPC http custom router rules
 	streamInterceptors   []grpc.StreamServerInterceptor // gRPC steam interceptor
 	unaryInterceptors    []grpc.UnaryServerInterceptor  // gRPC server interceptor
 	enableRequestAccess  bool                           // gRPC request log config
@@ -99,7 +98,7 @@ func DefaultHTTPHandler(mux *gRuntime.ServeMux) http.Handler {
 // so we can use the standard library to provide both HTTP/1.1 and HTTP/2 functions on the same port
 // The h2c.NewHandler method has been specially processed, and h2c.NewHandler will return an http.handler
 // The main internal logic is to intercept all h2c traffic, then hijack and redirect it
-// to the corresponding Hander according to different request traffic types to process
+// to the corresponding handler according to different request traffic types to process
 func GRPCHandlerFunc(grpcServer *grpc.Server, otherHandler http.Handler) http.Handler {
 	return h2c.NewHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.ProtoMajor == 2 && strings.Contains(r.Header.Get("Content-Type"), "application/grpc") {
@@ -113,7 +112,7 @@ func GRPCHandlerFunc(grpcServer *grpc.Server, otherHandler http.Handler) http.Ha
 func defaultService() *Service {
 	s := Service{}
 	s.httpHandler = DefaultHTTPHandler
-	s.errorHandler = gRuntime.DefaultHTTPError
+	s.errorHandler = gRuntime.DefaultHTTPErrorHandler
 	s.shutdownFunc = func() {}
 	s.shutdownTimeout = defaultShutdownTimeout
 	s.preShutdownDelay = defaultPreShutdownDelay
@@ -144,7 +143,7 @@ func defaultService() *Service {
 	s.streamInterceptors = append(s.streamInterceptors, gValidator.StreamServerInterceptor())
 	s.unaryInterceptors = append(s.unaryInterceptors, gValidator.UnaryServerInterceptor())
 
-	// apply default marshaler option for mux, can be replaced by using MuxOption
+	// apply default marshal option for mux, can be replaced by using MuxOption
 	s.muxOptions = append(s.muxOptions, defaultMuxOption)
 
 	return &s
@@ -164,7 +163,11 @@ func NewService(opts ...Option) *Service {
 
 	// default dial option is using insecure connection
 	if len(s.gRPCDialOptions) == 0 {
-		s.gRPCDialOptions = append(s.gRPCDialOptions, grpc.WithInsecure())
+		// Deprecated: use WithTransportCredentials and insecure.NewCredentials()
+		// instead. Will be supported throughout 1.x.
+		// s.gRPCDialOptions = append(s.gRPCDialOptions, grpc.WithInsecure())
+		// so use grpc.WithTransportCredentials(insecure.NewCredentials()) as default grpc.DialOption
+		s.gRPCDialOptions = append(s.gRPCDialOptions, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
 
 	// install prometheus interceptor
@@ -174,8 +177,8 @@ func NewService(opts ...Option) *Service {
 
 		// add /metrics HTTP/1 endpoint
 		routeMetrics := Route{
-			Method:  "GET",
-			Pattern: PathPattern("metrics"),
+			Method: "GET",
+			Path:   "/metrics",
 			Handler: func(w http.ResponseWriter, r *http.Request, pathParams map[string]string) {
 				promhttp.Handler().ServeHTTP(w, r)
 			},
@@ -185,7 +188,7 @@ func NewService(opts ...Option) *Service {
 	}
 
 	// init gateway mux
-	s.muxOptions = append(s.muxOptions, gRuntime.WithProtoErrorHandler(s.errorHandler))
+	s.muxOptions = append(s.muxOptions, gRuntime.WithErrorHandler(s.errorHandler))
 
 	// init annotators
 	for _, annotator := range s.annotators {
@@ -195,9 +198,8 @@ func NewService(opts ...Option) *Service {
 	s.mux = gRuntime.NewServeMux(s.muxOptions...)
 
 	s.gRPCServerOptions = append(s.gRPCServerOptions,
-		middleware.WithStreamServerChain(s.streamInterceptors...))
-	s.gRPCServerOptions = append(s.gRPCServerOptions,
-		middleware.WithUnaryServerChain(s.unaryInterceptors...))
+		grpc.ChainStreamInterceptor(s.streamInterceptors...),
+		grpc.ChainUnaryInterceptor(s.unaryInterceptors...))
 
 	s.GRPCServer = grpc.NewServer(
 		s.gRPCServerOptions...,
@@ -219,47 +221,49 @@ func NewService(opts ...Option) *Service {
 
 // RequestInterceptor request interceptor to record basic information of the request
 func (s *Service) RequestInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo,
-	handler grpc.UnaryHandler) (res interface{}, err error) {
+	handler grpc.UnaryHandler) (reply interface{}, err error) {
+	t := time.Now()
+	md := GetIncomingMD(ctx) // get request metadata
+	requestID := GetStringFromMD(md, XRequestID)
+	if requestID == "" {
+		requestID = Uuid()
+		md.Set(XRequestID.String(), requestID)
+	}
+
 	defer func() {
 		if r := recover(); r != nil {
 			// the error format defined by grpc must be used here to return code, desc
 			err = status.Errorf(codes.Internal, "%s", "server inner error")
-
-			s.logger.Printf("reply: %v\n", res)
-			s.logger.Printf("exec panic: %v\n", r)
-			s.logger.Printf("full stack: %s\n", string(debug.Stack()))
+			s.logger.Printf("x-request-id:%s exec panic:%v req:%v reply:%v\n", requestID, r, req, reply)
+			s.logger.Printf("x-request-id:%s full stack:%s\n", requestID, string(debug.Stack()))
 		}
 	}()
 
-	t := time.Now()
+	// request ip
 	clientIP, _ := GetGRPCClientIP(ctx)
 
-	s.logger.Printf("exec begin\n")
-	s.logger.Printf("client_ip: %s\n", clientIP)
-	// s.logger.Printf("request: %v\n", req)
+	// exec begin
+	s.logger.Printf("exec begin,method:%s x-request-id:%s client-ip:%s\n", info.FullMethod, requestID, clientIP)
 
-	// request ctx key
-	if logID := ctx.Value(XRequestID); logID == nil {
-		ctx = context.WithValue(ctx, XRequestID, RndUUID())
-	}
+	// set request ctx key
+	md.Set(GRPCClientIP.String(), clientIP)
+	md.Set(RequestMethod.String(), info.FullMethod)
+	md.Set(RequestURI.String(), info.FullMethod)
 
-	ctx = context.WithValue(ctx, GRPCClientIP, clientIP)
-	ctx = context.WithValue(ctx, RequestMethod, info.FullMethod)
-	ctx = context.WithValue(ctx, RequestURI, info.FullMethod)
+	ctx = metadata.NewIncomingContext(ctx, md)
 
-	res, err = handler(ctx, req)
+	reply, err = handler(ctx, req)
+
+	// exec end
 	ttd := time.Since(t).Milliseconds()
 	if err != nil {
-		s.logger.Printf("trace_error: %s\n", err.Error())
-		s.logger.Printf("exec time: %v\n", ttd)
-		s.logger.Printf("reply: %v\n", res)
-
+		s.logger.Printf("x-request-id:%s trace_error:%s reply:%v exec_time:%v\n", requestID, err.Error(), reply, ttd)
 		return nil, err
 	}
 
-	s.logger.Printf("exec end,cost time: %v ms\n", ttd)
+	s.logger.Printf("exec end,method:%s x-request-id:%s cost time:%vms\n", info.FullMethod, requestID, ttd)
 
-	return res, err
+	return reply, err
 }
 
 // GetPid gets the process id of server
@@ -279,7 +283,7 @@ func (s *Service) AddRoute(routes ...Route) {
 
 // Start starts the microservice with listening on the ports
 // start grpc gateway and http server on different port
-func (s *Service) Start(httpPort int, grpcPort int) error {
+func (s *Service) Start(httpPort, grpcPort int) error {
 	// http gw host and grpc host
 	s.httpServerAddress = fmt.Sprintf("0.0.0.0:%d", httpPort)
 	s.gRPCAddress = fmt.Sprintf("0.0.0.0:%d", grpcPort)
@@ -355,14 +359,17 @@ func (s *Service) startGRPCGateway() error {
 		}
 	}
 
-	// apply routes
-	s.applyRoutes()
-
 	// static file access
 	if s.enableStaticAccess {
 		// this is the fallback handler that will serve static files,
 		// if file does not exist, then a 404 error will be returned.
 		s.mux.Handle("GET", AllPattern(), s.ServeFile)
+	}
+
+	// apply routes
+	err = s.appRoutes()
+	if err != nil {
+		return err
 	}
 
 	// http server
@@ -371,6 +378,23 @@ func (s *Service) startGRPCGateway() error {
 	s.HTTPServer.RegisterOnShutdown(s.shutdownFunc)
 
 	return s.HTTPServer.ListenAndServe()
+}
+
+func (s *Service) appRoutes() error {
+	for _, route := range s.routes {
+		if !strings.HasPrefix(route.Path, "/") {
+			route.Path = "/" + route.Path
+		}
+
+		err := s.mux.HandlePath(route.Method, route.Path, route.Handler)
+		if err != nil {
+			s.logger.Printf("add router error:%s,current method:%s path:%s invalid", err.Error(),
+				route.Method, route.Path)
+			return err
+		}
+	}
+
+	return nil
 }
 
 // Stop stops the microservice gracefully.
@@ -478,7 +502,10 @@ func (s *Service) startGRPCAndHTTPServer() error {
 	}
 
 	// apply routes
-	s.applyRoutes()
+	err = s.appRoutes()
+	if err != nil {
+		return err
+	}
 
 	// http server and h2c handler
 	// create a http mux
@@ -507,12 +534,6 @@ func (s *Service) stopGRPCAndHTTPServer() {
 	s.httpServerShutdown()
 }
 
-func (s *Service) applyRoutes() {
-	for _, route := range s.routes {
-		s.mux.Handle(route.Method, route.Pattern, route.Handler)
-	}
-}
-
 // The following method is only used to start the grpc server, but not start http gw.
 
 // NewServiceWithoutGateway new a service without http gw.
@@ -529,7 +550,11 @@ func NewServiceWithoutGateway(opts ...Option) *Service {
 
 	// default dial option is using insecure connection
 	if len(s.gRPCDialOptions) == 0 {
-		s.gRPCDialOptions = append(s.gRPCDialOptions, grpc.WithInsecure())
+		// Deprecated: use WithTransportCredentials and insecure.NewCredentials()
+		// instead. Will be supported throughout 1.x.
+		// s.gRPCDialOptions = append(s.gRPCDialOptions, grpc.WithInsecure())
+		// so use grpc.WithTransportCredentials(insecure.NewCredentials()) as default grpc.DialOption
+		s.gRPCDialOptions = append(s.gRPCDialOptions, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
 
 	// install prometheus interceptor
@@ -541,9 +566,8 @@ func NewServiceWithoutGateway(opts ...Option) *Service {
 	s.muxOptions = nil
 
 	s.gRPCServerOptions = append(s.gRPCServerOptions,
-		middleware.WithStreamServerChain(s.streamInterceptors...))
-	s.gRPCServerOptions = append(s.gRPCServerOptions,
-		middleware.WithUnaryServerChain(s.unaryInterceptors...))
+		grpc.ChainStreamInterceptor(s.streamInterceptors...),
+		grpc.ChainUnaryInterceptor(s.unaryInterceptors...))
 
 	s.GRPCServer = grpc.NewServer(
 		s.gRPCServerOptions...,
@@ -617,7 +641,6 @@ func (s *Service) StopGRPCWithoutGateway() {
 }
 
 // ServeFile serves a file
-// if file does not exist, then a 404 error will be returned.
 func (s *Service) ServeFile(w http.ResponseWriter, r *http.Request, _ map[string]string) {
 	dir := s.staticDir
 	if s.staticDir == "" {

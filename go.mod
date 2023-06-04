@@ -1,16 +1,16 @@
 module github.com/go-god/gmicro
 
-go 1.13
+go 1.16
 
 require (
-	github.com/golang/protobuf v1.5.2
-	github.com/grpc-ecosystem/go-grpc-middleware v1.3.0
+	github.com/google/uuid v1.3.0
+	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0
-	github.com/grpc-ecosystem/grpc-gateway v1.16.0
-	github.com/prometheus/client_golang v1.11.0
-	github.com/stretchr/testify v1.7.0
-	golang.org/x/net v0.0.0-20210614182718-04defd469f4e
-	google.golang.org/genproto v0.0.0-20210617175327-b9e0b3197ced
-	google.golang.org/grpc v1.38.0
-	google.golang.org/protobuf v1.26.0
+	github.com/grpc-ecosystem/grpc-gateway/v2 v2.16.0
+	github.com/prometheus/client_golang v1.15.1
+	github.com/stretchr/testify v1.8.4
+	golang.org/x/net v0.10.0
+	google.golang.org/genproto/googleapis/api v0.0.0-20230530153820-e85fd2cbaebc
+	google.golang.org/grpc v1.55.0
+	google.golang.org/protobuf v1.30.0
 )

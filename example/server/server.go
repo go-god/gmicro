@@ -7,18 +7,18 @@ import (
 	"net/http"
 	"time"
 
-	"google.golang.org/grpc"
-
 	"github.com/go-god/gmicro"
 	"github.com/go-god/gmicro/example/pb"
+	"google.golang.org/grpc"
 )
 
-var sharePort int
-var shutdownFunc func()
+var (
+	sharePort    int
+	shutdownFunc func()
+)
 
 func init() {
 	sharePort = 8081
-
 	shutdownFunc = func() {
 		fmt.Println("Server shutting down")
 	}
@@ -37,8 +37,8 @@ func init() {
 func main() {
 	// add the /test endpoint
 	route := gmicro.Route{
-		Method:  "GET",
-		Pattern: gmicro.PathPattern("test"),
+		Method: "GET",
+		Path:   "/test",
 		Handler: func(w http.ResponseWriter, r *http.Request, pathParams map[string]string) {
 			w.Write([]byte("Hello!"))
 		},
@@ -63,8 +63,8 @@ func main() {
 	pb.RegisterGreeterServiceServer(s.GRPCServer, &greeterService{})
 
 	newRoute := gmicro.Route{
-		Method:  "GET",
-		Pattern: gmicro.PathPattern("health"),
+		Method: "GET",
+		Path:   "health",
 		Handler: func(w http.ResponseWriter, r *http.Request, pathParams map[string]string) {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.WriteHeader(http.StatusOK)
@@ -75,8 +75,8 @@ func main() {
 	s.AddRoute(newRoute)
 
 	newRoute2 := gmicro.Route{
-		Method:  "GET",
-		Pattern: gmicro.PathPattern("info"),
+		Method: "GET",
+		Path:   "/info",
 		Handler: func(w http.ResponseWriter, r *http.Request, pathParams map[string]string) {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.WriteHeader(http.StatusOK)
@@ -98,7 +98,15 @@ func main() {
 
 // rpc service entry
 type greeterService struct {
-	// 必须包含这个，否则就没有实现 pb.GreeterServiceServer interface
+	// 这里必须包含这个解构体才可以，否则就是没有实现
+	/*
+		// All implementations must embed UnimplementedGreeterServiceServer
+		// for forward compatibility
+		type GreeterServiceServer interface {
+			SayHello(context.Context, *HelloReq) (*HelloReply, error)
+			mustEmbedUnimplementedGreeterServiceServer()
+		}
+	*/
 	pb.UnimplementedGreeterServiceServer
 }
 
@@ -107,6 +115,10 @@ func (s *greeterService) SayHello(ctx context.Context, in *pb.HelloReq) (*pb.Hel
 	// The panic simulated here can be automatically captured in the request
 	// interceptor to record the operation log
 	log.Println("req data: ", in)
+	time.Sleep(12 * time.Millisecond)
+
+	md := gmicro.GetIncomingMD(ctx)
+	log.Println("request md: ", md)
 	return &pb.HelloReply{
 		Name:    "hello," + in.Name,
 		Message: "call ok",

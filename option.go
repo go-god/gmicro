@@ -5,8 +5,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/grpc-ecosystem/grpc-gateway/runtime"
-	gRuntime "github.com/grpc-ecosystem/grpc-gateway/runtime"
+	gRuntime "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"google.golang.org/grpc"
 )
 
@@ -43,7 +42,7 @@ func WithAnnotator(annotator ...AnnotatorFunc) Option {
 }
 
 // WithErrorHandler returns an Option to set the errorHandler
-func WithErrorHandler(errorHandler gRuntime.ProtoErrorHandlerFunc) Option {
+func WithErrorHandler(errorHandler gRuntime.ErrorHandlerFunc) Option {
 	return func(s *Service) {
 		s.errorHandler = errorHandler
 	}
@@ -121,7 +120,7 @@ func WithGRPCDialOption(dialOption ...grpc.DialOption) Option {
 }
 
 // WithMuxOption returns an Option to append a mux option
-func WithMuxOption(muxOption ...runtime.ServeMuxOption) Option {
+func WithMuxOption(muxOption ...gRuntime.ServeMuxOption) Option {
 	return func(s *Service) {
 		s.muxOptions = append(s.muxOptions, muxOption...)
 	}
