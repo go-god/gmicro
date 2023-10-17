@@ -44,8 +44,8 @@ https://github.com/daheige/goapp
 
 https://github.com/daheige/gmicro-demo
 
-Old projects can continue to use the v1 version, and new projects can start to use the v2 version.
-Note that the gmicro address has changed, and the v2 version is github.com/go-god/gmicro
+Old projects can continue to use the v1 version https://github.com/daheige/gmicro, and new projects can start to use the v2 version.
+Note that the gmicro address has changed, and the v2 version is https://github.com/go-god/gmicro
 
 # change log
 
